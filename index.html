@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel с диапазонами (исправленный)</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .app {
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+            max-width: 100%;
+            width: 1200px;
+            overflow-x: auto;
+        }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        .toolbar button {
+            padding: 5px 12px;
+            background: #e8edf3;
+            border: 1px solid #c5cdd8;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.15s;
+        }
+        .toolbar button:hover { background: #d0d9e5; }
+        .toolbar button.primary {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+        .toolbar button.primary:hover { background: #1557b0; }
+        .toolbar button.danger {
+            background: #d93025;
+            color: white;
+            border-color: #d93025;
+        }
+        .toolbar button.danger:hover { background: #b3261e; }
+        .formula-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid #dadce0;
+        }
+        .formula-bar .cell-ref {
+            font-weight: 600;
+            color: #1a73e8;
+            min-width: 50px;
+            text-align: center;
+            background: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .formula-bar input {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 6px 4px;
+            font-size: 14px;
+            outline: none;
+            font-family: 'Consolas', monospace;
+        }
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            max-height: 550px;
+        }
+        table {
+            border-collapse: collapse;
+            table-layout: fixed;
+            min-width: 600px;
+        }
+        th, td {
+            border: 1px solid #dadce0;
+            padding: 0;
+            text-align: center;
+            height: 30px;
+            min-width: 70px;
+            max-width: 150px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        th {
+            background: #f1f3f5;
+            color: #5f6368;
+            font-weight: 600;
+            font-size: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        th:first-child {
+            min-width: 40px;
+            background: #e8eaed;
+        }
+        td {
+            background: white;
+            cursor: cell;
+        }
+        td .cell-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            padding: 0 6px;
+            font-size: 14px;
+            background: transparent;
+            outline: none;
+            font-family: inherit;
+            text-align: left;
+        }
+        td .cell-input:focus {
+            background: #e8f0fe;
+            box-shadow: inset 0 0 0 2px #1a73e8;
+        }
+        /* Выделение диапазона */
+        td.in-range {
+            background: #d2e3fc !important;
+        }
+        td.selected {
+            outline: 2px solid #1a73e8;
+            outline-offset: -1px;
+            background: #e8f0fe !important;
+        }
+        .row-header {
+            background: #f1f3f5;
+            color: #5f6368;
+            font-weight: 600;
+            font-size: 12px;
+            width: 40px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .status-bar {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #5f6368;
+            display: flex;
+            justify-content: space-between;
+        }
+        .status-bar span:first-child {
+            color: #1a73e8;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin:0 0 8px 0; color:#1a73e8;">📊 Excel Lite</h2>
+    </div>
+
+    <div class="toolbar">
+        <button class="primary" id="addRowBtn">➕ Строка</button>
+        <button class="primary" id="addColBtn">➕ Столбец</button>
+        <button class="danger" id="delRowBtn">➖ Удалить строку</button>
+        <button class="danger" id="delColBtn">➖ Удалить столбец</button>
+        <button id="clearBtn">🧹 Очистить диапазон</button>
+        <button id="sumBtn">🔢 Автосумма</button>
+        <span style="margin-left:auto; font-size:13px; color:#555;" id="cellInfo">Выбрано: A1</span>
+    </div>
+
+    <div class="formula-bar">
+        <span class="cell-ref" id="cellRef">A1</span>
+        <input type="text" id="formulaInput" placeholder="Введите значение или формулу (=SUM(A1:A5))" />
+    </div>
+
+    <div class="table-wrap">
+        <table id="spreadsheet"></table>
+    </div>
+
+    <div class="status-bar">
+        <span id="statusMsg">Готово</span>
+        <span id="sumStatus">Сумма всех чисел: 0</span>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // ----- Состояние -----
+        const state = {
+            data: {},
+            rows: 10,
+            cols: 7,
+            activeRow: 0,
+            activeCol: 0,
+            selStartRow: 0,
+            selStartCol: 0,
+            selEndRow: 0,
+            selEndCol: 0,
+            rangeSelecting: false,
+            clipboard: null,
+            undoStack: [],
+        };
+
+        const tableEl = document.getElementById('spreadsheet');
+        const formulaInput = document.getElementById('formulaInput');
+        const cellRefEl = document.getElementById('cellRef');
+        const cellInfo = document.getElementById('cellInfo');
+        const statusMsg = document.getElementById('statusMsg');
+        const sumStatus = document.getElementById('sumStatus');
+
+        // ----- Вспомогательные функции -----
+        function cellKey(r, c) { return `${r},${c}`; }
+        function getCellValue(r, c) {
+            const key = cellKey(r, c);
+            return state.data[key] !== undefined ? state.data[key] : '';
+        }
+        function setCellValue(r, c, val) {
+            const key = cellKey(r, c);
+            if (val === '' || val === null || val === undefined) delete state.data[key];
+            else state.data[key] = String(val);
+        }
+
+        function parseCellRef(ref) {
+            const match = ref.match(/^([A-Z]+)(\d+)$/);
+            if (!match) return null;
+            let colStr = match[1], rowStr = match[2];
+            let col = 0;
+            for (let i = 0; i < colStr.length; i++) col = col * 26 + (colStr.charCodeAt(i) - 64);
+            col -= 1;
+            const row = parseInt(rowStr, 10) - 1;
+            return { r: row, c: col };
+        }
+        function toCellRef(r, c) {
+            let colStr = '', num = c + 1;
+            while (num > 0) {
+                const rem = (num - 1) % 26;
+                colStr = String.fromCharCode(65 + rem) + colStr;
+                num = Math.floor((num - 1) / 26);
+            }
+            return colStr + (r + 1);
+        }
+
+        function parseRange(rangeStr) {
+            const parts = rangeStr.split(':');
+            if (parts.length !== 2) return [];
+            const start = parseCellRef(parts[0].trim());
+            const end = parseCellRef(parts[1].trim());
+            if (!start || !end) return [];
+            const cells = [];
+            const minR = Math.min(start.r, end.r), maxR = Math.max(start.r, end.r);
+            const minC = Math.min(start.c, end.c), maxC = Math.max(start.c, end.c);
+            for (let r = minR; r <= maxR; r++)
+                for (let c = minC; c <= maxC; c++) cells.push({ r, c });
+            return cells;
+        }
+
+        // ----- Вычисление формул (та же логика, что и раньше) -----
+        function evaluateFormula(expr) {
+            const body = expr.substring(1).trim().toUpperCase();
+            const funcMatch = body.match(/^(SUM|AVERAGE|COUNT|MIN|MAX|SUMIF|COUNTIF|IF)\((.*)\)$/);
+            if (!funcMatch) return expr;
+
+            const func = funcMatch[1];
+            const args = funcMatch[2].split(',').map(s => s.trim());
+
+            if (func === 'IF') {
+                if (args.length < 3) return '#ОШИБКА';
+                const cond = args[0], thenVal = args[1], elseVal = args[2] || '';
+                let conditionMet = false;
+                const cmpMatch = cond.match(/^(.+?)([<>=]+)(.+)$/);
+                if (cmpMatch) {
+                    const left = cmpMatch[1].trim(), op = cmpMatch[2], right = cmpMatch[3].trim();
+                    const leftNum = parseFloat(left), rightNum = parseFloat(right);
+                    const l = isNaN(leftNum) ? left : leftNum;
+                    const r = isNaN(rightNum) ? right : rightNum;
+                    if (typeof l === 'number' && typeof r === 'number') {
+                        switch (op) {
+                            case '=':  conditionMet = l === r; break;
+                            case '<':  conditionMet = l < r; break;
+                            case '>':  conditionMet = l > r; break;
+                            case '<=': conditionMet = l <= r; break;
+                            case '>=': conditionMet = l >= r; break;
+                            case '<>': conditionMet = l !== r; break;
+                            default: conditionMet = false;
+                        }
+                    } else {
+                        const ls = String(l), rs = String(r);
+                        switch (op) {
+                            case '=':  conditionMet = ls === rs; break;
+                            case '<>': conditionMet = ls !== rs; break;
+                            default: conditionMet = false;
+                        }
+                    }
+                } else {
+                    const val = getCellValueFromExpr(cond);
+                    conditionMet = (val !== '' && val !== '0' && val !== 'FALSE' && val !== 'false');
+                }
+                return conditionMet ? thenVal : elseVal;
+            }
+
+            let numbers = [];
+            for (let arg of args) {
+                if (arg.includes(':')) {
+                    const cells = parseRange(arg);
+                    for (let cell of cells) {
+                        const val = getCellValue(cell.r, cell.c);
+                        const num = parseFloat(val);
+                        if (!isNaN(num)) numbers.push(num);
+                    }
+                } else {
+                    const ref = parseCellRef(arg);
+                    if (ref) {
+                        const val = getCellValue(ref.r, ref.c);
+                        const num = parseFloat(val);
+                        if (!isNaN(num)) numbers.push(num);
+                    } else {
+                        const num = parseFloat(arg);
+                        if (!isNaN(num)) numbers.push(num);
+                    }
+                }
+            }
+
+            if (func === 'SUMIF' || func === 'COUNTIF') {
+                if (args.length < 2) return '#ОШИБКА';
+                const rangeArg = args[0];
+                const criteria = args[1];
+                const sumRange = args.length > 2 ? args[2] : rangeArg;
+                const rangeCells = parseRange(rangeArg);
+                const sumCells = parseRange(sumRange);
+                let result = 0;
+                let count = 0;
+                for (let i = 0; i < rangeCells.length; i++) {
+                    const cell = rangeCells[i];
+                    const val = getCellValue(cell.r, cell.c);
+                    let match = false;
+                    if (criteria.startsWith('"') && criteria.endsWith('"')) {
+                        const crit = criteria.slice(1, -1);
+                        match = (val === crit);
+                    } else {
+                        const critNum = parseFloat(criteria);
+                        if (!isNaN(critNum)) match = (parseFloat(val) === critNum);
+                        else match = (val === criteria);
+                    }
+                    if (match) {
+                        if (func === 'SUMIF') {
+                            const sumCell = sumCells[i] || cell;
+                            const sumVal = parseFloat(getCellValue(sumCell.r, sumCell.c));
+                            if (!isNaN(sumVal)) result += sumVal;
+                        } else count++;
+                    }
+                }
+                return func === 'SUMIF' ? result : count;
+            }
+
+            if (numbers.length === 0) return 0;
+            switch (func) {
+                case 'SUM': return numbers.reduce((a,b) => a + b, 0);
+                case 'AVERAGE': return numbers.reduce((a,b) => a + b, 0) / numbers.length;
+                case 'COUNT': return numbers.length;
+                case 'MIN': return Math.min(...numbers);
+                case 'MAX': return Math.max(...numbers);
+                default: return 0;
+            }
+        }
+
+        function getCellValueFromExpr(expr) {
+            const ref = parseCellRef(expr);
+            if (ref) return getCellValue(ref.r, ref.c);
+            return expr;
+        }
+
+        function getDisplayValue(r, c) {
+            const raw = getCellValue(r, c);
+            if (typeof raw === 'string' && raw.startsWith('=')) {
+                try {
+                    const result = evaluateFormula(raw);
+                    return String(result);
+                } catch (e) {
+                    return '#ОШИБКА';
+                }
+            }
+            return raw;
+        }
+
+        // ----- Проверка, входит ли ячейка в выделенный диапазон -----
+        function isInRange(r, c) {
+            const minR = Math.min(state.selStartRow, state.selEndRow);
+            const maxR = Math.max(state.selStartRow, state.selEndRow);
+            const minC = Math.min(state.selStartCol, state.selEndCol);
+            const maxC = Math.max(state.selStartCol, state.selEndCol);
+            return (r >= minR && r <= maxR && c >= minC && c <= maxC);
+        }
+
+        // ----- Перерисовка таблицы -----
+        function render() {
+            tableEl.innerHTML = '';
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            const corner = document.createElement('th');
+            corner.textContent = '';
+            headerRow.appendChild(corner);
+            for (let c = 0; c < state.cols; c++) {
+                const th = document.createElement('th');
+                th.textContent = String.fromCharCode(65 + c);
+                headerRow.appendChild(th);
+            }
+            thead.appendChild(headerRow);
+            tableEl.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            for (let r = 0; r < state.rows; r++) {
+                const tr = document.createElement('tr');
+                const rowHeader = document.createElement('td');
+                rowHeader.className = 'row-header';
+                rowHeader.textContent = r + 1;
+                tr.appendChild(rowHeader);
+
+                for (let c = 0; c < state.cols; c++) {
+                    const td = document.createElement('td');
+                    td.dataset.row = r;
+                    td.dataset.col = c;
+
+                    // Классы для выделения
+                    if (isInRange(r, c)) {
+                        td.classList.add('in-range');
+                    }
+                    if (r === state.activeRow && c === state.activeCol) {
+                        td.classList.add('selected');
+                    }
+
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'cell-input';
+                    input.dataset.row = r;
+                    input.dataset.col = c;
+                    const display = getDisplayValue(r, c);
+                    input.value = display;
+                    td.appendChild(input);
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+            tableEl.appendChild(tbody);
+
+            updateFormulaBar();
+            updateStatus();
+        }
+
+        // ----- Обновление строки формул и информации -----
+        function updateFormulaBar() {
+            const r = state.activeRow, c = state.activeCol;
+            const ref = toCellRef(r, c);
+            cellRefEl.textContent = ref;
+            let rangeInfo = '';
+            if (state.selStartRow !== state.selEndRow || state.selStartCol !== state.selEndCol) {
+                const startRef = toCellRef(state.selStartRow, state.selStartCol);
+                const endRef = toCellRef(state.selEndRow, state.selEndCol);
+                rangeInfo = ` (диапазон: ${startRef}:${endRef})`;
+            }
+            cellInfo.textContent = `Выбрано: ${ref}${rangeInfo}`;
+            const raw = getCellValue(r, c);
+            formulaInput.value = raw;
+        }
+
+        function updateStatus() {
+            let sum = 0;
+            for (let r = 0; r < state.rows; r++) {
+                for (let c = 0; c < state.cols; c++) {
+                    const val = getDisplayValue(r, c);
+                    const num = parseFloat(val);
+                    if (!isNaN(num)) sum += num;
+                }
+            }
+            sumStatus.textContent = `Сумма всех чисел: ${sum}`;
+        }
+
+        // ----- Сохранение текущей ячейки (при потере фокуса или изменении) -----
+        function saveCurrentCell() {
+            const r = state.activeRow, c = state.activeCol;
+            const input = document.querySelector(`.cell-input[data-row="${r}"][data-col="${c}"]`);
+            if (input) {
+                const val = input.value;
+                const oldVal = getCellValue(r, c);
+                if (oldVal !== val) {
+                    // Сохраняем в историю
+                    state.undoStack.push({ r, c, oldVal });
+                    if (state.undoStack.length > 30) state.undoStack.shift();
+                    setCellValue(r, c, val);
+                    // Перерисовываем, чтобы обновить отображение (формулы и т.д.)
+                    render();
+                    // Восстанавливаем фокус на том же input, чтобы не терять курсор
+                    const newInput = document.querySelector(`.cell-input[data-row="${r}"][data-col="${c}"]`);
+                    if (newInput && document.activeElement !== newInput) {
+                        // Не перехватываем фокус, если он уже на другом элементе
+                    }
+                    statusMsg.textContent = `Сохранено: ${val}`;
+                }
+            }
+        }
+
+        // ----- Установка активной ячейки и диапазона -----
+        function setActiveCell(r, c, shiftPressed = false) {
+            // Сохраняем текущую ячейку перед перемещением
+            saveCurrentCell();
+
+            if (shiftPressed) {
+                // Если диапазон ещё не начат, начинаем с текущей активной
+                if (!state.rangeSelecting) {
+                    state.selStartRow = state.activeRow;
+                    state.selStartCol = state.activeCol;
+                    state.rangeSelecting = true;
+                }
+                state.selEndRow = r;
+                state.selEndCol = c;
+                state.activeRow = r;
+                state.activeCol = c;
+                render();
+                updateFormulaBar();
+                return;
+            }
+
+            // Без Shift - сброс диапазона на одну ячейку
+            state.activeRow = r;
+            state.activeCol = c;
+            state.selStartRow = r;
+            state.selStartCol = c;
+            state.selEndRow = r;
+            state.selEndCol = c;
+            state.rangeSelecting = false;
+            render();
+            updateFormulaBar();
+            // Фокусируем input
+            const input = document.querySelector(`.cell-input[data-row="${r}"][data-col="${c}"]`);
+            if (input) input.focus();
+        }
+
+        // ----- Добавление/удаление строк/столбцов -----
+        function addRow() {
+            saveCurrentCell();
+            state.rows++;
+            render();
+            setActiveCell(state.rows - 1, state.activeCol);
+            statusMsg.textContent = 'Строка добавлена';
+        }
+        function addCol() {
+            saveCurrentCell();
+            state.cols++;
+            render();
+            setActiveCell(state.activeRow, state.cols - 1);
+            statusMsg.textContent = 'Столбец добавлен';
+        }
+        function delRow() {
+            if (state.rows <= 1) return;
+            saveCurrentCell();
+            const r = state.activeRow;
+            for (let c = 0; c < state.cols; c++) delete state.data[cellKey(r, c)];
+            for (let i = r + 1; i < state.rows; i++) {
+                for (let c = 0; c < state.cols; c++) {
+                    const val = getCellValue(i, c);
+                    setCellValue(i - 1, c, val);
+                }
+            }
+            for (let c = 0; c < state.cols; c++) delete state.data[cellKey(state.rows - 1, c)];
+            state.rows--;
+            if (state.activeRow >= state.rows) setActiveCell(state.rows - 1, state.activeCol);
+            else render();
+            statusMsg.textContent = 'Строка удалена';
+        }
+        function delCol() {
+            if (state.cols <= 1) return;
+            saveCurrentCell();
+            const c = state.activeCol;
+            for (let r = 0; r < state.rows; r++) delete state.data[cellKey(r, c)];
+            for (let i = c + 1; i < state.cols; i++) {
+                for (let r = 0; r < state.rows; r++) {
+                    const val = getCellValue(r, i);
+                    setCellValue(r, i - 1, val);
+                }
+            }
+            for (let r = 0; r < state.rows; r++) delete state.data[cellKey(r, state.cols - 1)];
+            state.cols--;
+            if (state.activeCol >= state.cols) setActiveCell(state.activeRow, state.cols - 1);
+            else render();
+            statusMsg.textContent = 'Столбец удалён';
+        }
+
+        function clearSelected() {
+            saveCurrentCell();
+            const minR = Math.min(state.selStartRow, state.selEndRow);
+            const maxR = Math.max(state.selStartRow, state.selEndRow);
+            const minC = Math.min(state.selStartCol, state.selEndCol);
+            const maxC = Math.max(state.selStartCol, state.selEndCol);
+            // Сохраняем в историю все изменения
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    const oldVal = getCellValue(r, c);
+                    state.undoStack.push({ r, c, oldVal });
+                    if (state.undoStack.length > 30) state.undoStack.shift();
+                    setCellValue(r, c, '');
+                }
+            }
+            render();
+            statusMsg.textContent = 'Диапазон очищен';
+        }
+
+        function autoSum() {
+            saveCurrentCell();
+            const minR = Math.min(state.selStartRow, state.selEndRow);
+            const maxR = Math.max(state.selStartRow, state.selEndRow);
+            const minC = Math.min(state.selStartCol, state.selEndCol);
+            const maxC = Math.max(state.selStartCol, state.selEndCol);
+            if (minR === maxR && minC === maxC) {
+                // Одиночная ячейка – автосумма чисел выше
+                const r = state.activeRow, c = state.activeCol;
+                let startRow = r - 1;
+                while (startRow >= 0 && getCellValue(startRow, c) !== '') startRow--;
+                startRow++;
+                const endRow = r - 1;
+                if (endRow < startRow) {
+                    statusMsg.textContent = 'Нет данных для суммирования';
+                    return;
+                }
+                const rangeRef = toCellRef(startRow, c) + ':' + toCellRef(endRow, c);
+                const formula = '=SUM(' + rangeRef + ')';
+                // Сохраняем в историю
+                const oldVal = getCellValue(r, c);
+                state.undoStack.push({ r, c, oldVal });
+                setCellValue(r, c, formula);
+                render();
+                statusMsg.textContent = 'Вставлена формула ' + formula;
+            } else {
+                // Суммируем выделенный диапазон
+                const rangeRef = toCellRef(minR, minC) + ':' + toCellRef(maxR, maxC);
+                const formula = '=SUM(' + rangeRef + ')';
+                const r = state.activeRow, c = state.activeCol;
+                const oldVal = getCellValue(r, c);
+                state.undoStack.push({ r, c, oldVal });
+                setCellValue(r, c, formula);
+                render();
+                statusMsg.textContent = 'Вставлена формула ' + formula;
+            }
+        }
+
+        // ----- Копирование / вставка / отмена -----
+        function copySelected() {
+            const r = state.activeRow, c = state.activeCol;
+            state.clipboard = getCellValue(r, c);
+            statusMsg.textContent = 'Скопировано: ' + state.clipboard;
+        }
+        function pasteSelected() {
+            if (state.clipboard === null) return;
+            const r = state.activeRow, c = state.activeCol;
+            const oldVal = getCellValue(r, c);
+            state.undoStack.push({ r, c, oldVal });
+            setCellValue(r, c, state.clipboard);
+            render();
+            statusMsg.textContent = 'Вставлено: ' + state.clipboard;
+        }
+        function undo() {
+            if (state.undoStack.length === 0) {
+                statusMsg.textContent = 'Нет действий для отмены';
+                return;
+            }
+            const last = state.undoStack.pop();
+            setCellValue(last.r, last.c, last.oldVal);
+            render();
+            statusMsg.textContent = 'Отменено действие для ' + toCellRef(last.r, last.c);
+        }
+
+        // ----- Обработка событий -----
+        // Клик по ячейке
+        tableEl.addEventListener('mousedown', function(e) {
+            const td = e.target.closest('td');
+            if (!td || td.classList.contains('row-header')) return;
+            const row = parseInt(td.dataset.row);
+            const col = parseInt(td.dataset.col);
+            if (isNaN(row) || isNaN(col)) return;
+
+            const shift = e.shiftKey;
+            // Сохраняем текущую ячейку перед переходом
+            saveCurrentCell();
+
+            if (shift) {
+                if (!state.rangeSelecting) {
+                    state.selStartRow = state.activeRow;
+                    state.selStartCol = state.activeCol;
+                    state.rangeSelecting = true;
+                }
+                state.selEndRow = row;
+                state.selEndCol = col;
+                state.activeRow = row;
+                state.activeCol = col;
+                render();
+                updateFormulaBar();
+                e.preventDefault();
+                return;
+            }
+
+            setActiveCell(row, col, false);
+        });
+
+        // Сохранение при потере фокуса на любом input внутри таблицы
+        tableEl.addEventListener('focusout', function(e) {
+            if (e.target.classList.contains('cell-input')) {
+                // Небольшая задержка, чтобы дать возможность переключиться на другую ячейку
+                setTimeout(() => {
+                    saveCurrentCell();
+                }, 50);
+            }
+        });
+
+        // Сохранение при изменении (change) – срабатывает после ввода и выхода из поля
+        tableEl.addEventListener('change', function(e) {
+            if (e.target.classList.contains('cell-input')) {
+                saveCurrentCell();
+            }
+        });
+
+        // Редактирование через строку формул
+        formulaInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const val = formulaInput.value;
+                const r = state.activeRow, c = state.activeCol;
+                const oldVal = getCellValue(r, c);
+                state.undoStack.push({ r, c, oldVal });
+                setCellValue(r, c, val);
+                render();
+                statusMsg.textContent = 'Изменено через строку формул';
+                e.preventDefault();
+            }
+        });
+
+        // Редактирование в ячейке (обработка Enter и Escape)
+        tableEl.addEventListener('keydown', function(e) {
+            if (e.target.classList.contains('cell-input')) {
+                if (e.key === 'Enter') {
+                    const input = e.target;
+                    const r = parseInt(input.dataset.row), c = parseInt(input.dataset.col);
+                    saveCurrentCell();
+                    e.preventDefault();
+                    if (r + 1 < state.rows) setActiveCell(r + 1, c, false);
+                }
+                if (e.key === 'Escape') {
+                    const input = e.target;
+                    const r = parseInt(input.dataset.row), c = parseInt(input.dataset.col);
+                    input.value = getDisplayValue(r, c); // возвращаем отображаемое значение
+                    e.preventDefault();
+                }
+            }
+            // Глобальные горячие клавиши
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'c') { copySelected(); e.preventDefault(); }
+                if (e.key === 'v') { pasteSelected(); e.preventDefault(); }
+                if (e.key === 'z') { undo(); e.preventDefault(); }
+            }
+            // Навигация стрелками (с Shift для расширения)
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                let r = state.activeRow, c = state.activeCol;
+                if (e.key === 'ArrowUp') r--;
+                else if (e.key === 'ArrowDown') r++;
+                else if (e.key === 'ArrowLeft') c--;
+                else if (e.key === 'ArrowRight') c++;
+                if (r < 0) r = 0;
+                if (c < 0) c = 0;
+                if (r >= state.rows) r = state.rows - 1;
+                if (c >= state.cols) c = state.cols - 1;
+                if (e.shiftKey) {
+                    if (!state.rangeSelecting) {
+                        state.selStartRow = state.activeRow;
+                        state.selStartCol = state.activeCol;
+                        state.rangeSelecting = true;
+                    }
+                    state.selEndRow = r;
+                    state.selEndCol = c;
+                    state.activeRow = r;
+                    state.activeCol = c;
+                    render();
+                    updateFormulaBar();
+                } else {
+                    setActiveCell(r, c, false);
+                }
+            }
+            // Tab и Shift+Tab для перехода по ячейкам
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                let r = state.activeRow, c = state.activeCol;
+                if (e.shiftKey) {
+                    c--;
+                    if (c < 0) { c = state.cols - 1; r--; }
+                } else {
+                    c++;
+                    if (c >= state.cols) { c = 0; r++; }
+                }
+                if (r < 0) r = 0;
+                if (r >= state.rows) r = state.rows - 1;
+                if (c < 0) c = 0;
+                if (c >= state.cols) c = state.cols - 1;
+                setActiveCell(r, c, false);
+            }
+        });
+
+        // ----- Кнопки -----
+        document.getElementById('addRowBtn').addEventListener('click', addRow);
+        document.getElementById('addColBtn').addEventListener('click', addCol);
+        document.getElementById('delRowBtn').addEventListener('click', delRow);
+        document.getElementById('delColBtn').addEventListener('click', delCol);
+        document.getElementById('clearBtn').addEventListener('click', clearSelected);
+        document.getElementById('sumBtn').addEventListener('click', autoSum);
+
+        // ----- Инициализация -----
+        state.activeRow = 0;
+        state.activeCol = 0;
+        state.selStartRow = 0;
+        state.selStartCol = 0;
+        state.selEndRow = 0;
+        state.selEndCol = 0;
+        render();
+
+        // Демо-данные для примера
+        setCellValue(0, 0, '10');
+        setCellValue(1, 0, '20');
+        setCellValue(2, 0, '30');
+        setCellValue(0, 1, '15');
+        setCellValue(1, 1, '25');
+        setCellValue(2, 1, '=SUM(A1:A3)');
+        render();
+        statusMsg.textContent = 'Готово! Используйте Shift+клик для выделения диапазона.';
+    })();
+</script>
+</body>
+</html>
